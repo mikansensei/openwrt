@@ -1,0 +1,56 @@
+From: Togo Tagai <mail@mikan.observer>
+Subject: [PATCH] usb: bcma-hcd: honor DT shutdown delay
+
+The Buffalo WXR-1900DHP3 OEM xHCI stop path applies a warm reset and then
+waits five seconds.  Live testing also showed that removing the xHCI child
+and waiting before reboot greatly reduces warm-reboot failures with a USB
+3.0 storage device attached.
+
+Honor an optional delay after OF children have been depopulated and before
+the parent BCMA core is disabled.  The property keeps this board-specific
+timing policy in DT instead of matching a machine compatible in the generic
+host driver.  Reject excessive values to keep shutdown time bounded.
+
+Signed-off-by: Togo Tagai <mail@mikan.observer>
+---
+ drivers/usb/host/bcma-hcd.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+--- a/drivers/usb/host/bcma-hcd.c
++++ b/drivers/usb/host/bcma-hcd.c
+@@ -24,6 +24,7 @@
+ #include <linux/gpio/consumer.h>
+ #include <linux/mfd/syscon.h>
+ #include <linux/platform_device.h>
++#include <linux/property.h>
+ #include <linux/regmap.h>
+ #include <linux/module.h>
+ #include <linux/slab.h>
+@@ -540,9 +541,27 @@ static void bcma_hcd_remove(struct bcma_
+ 	bcma_core_disable(dev, 0);
+ }
+ 
++static void bcma_hcd_shutdown_delay(struct bcma_device *dev)
++{
++	u32 delay_ms;
++
++	if (device_property_read_u32(&dev->dev, "brcm,shutdown-delay-ms",
++				     &delay_ms))
++		return;
++
++	if (delay_ms > 10000) {
++		dev_warn(&dev->dev, "ignoring excessive shutdown delay\n");
++		return;
++	}
++
++	if (delay_ms)
++		msleep(delay_ms);
++}
++
+ static void bcma_hcd_shutdown(struct bcma_device *dev)
+ {
+ 	bcma_hcd_of_platform_depopulate(bcma_get_drvdata(dev));
++	bcma_hcd_shutdown_delay(dev);
+ 
+ 	bcma_hci_platform_power_gpio(dev, false);
+ 	bcma_core_disable(dev, 0);
