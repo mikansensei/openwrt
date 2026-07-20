@@ -1,0 +1,34 @@
+From: Togo Tagai <mail@mikan.observer>
+Subject: [PATCH] dt-bindings: bus: brcm,axi: add USB core quirks
+
+Some Northstar boards need a DMU reset sequence before their USB 3.0
+core is enabled, or a bounded settle period after the host child has been
+removed.  Document optional properties for these board-level requirements.
+
+Signed-off-by: Togo Tagai <mail@mikan.observer>
+---
+ Documentation/devicetree/bindings/bus/brcm,bus-axi.txt | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+--- a/Documentation/devicetree/bindings/bus/brcm,bus-axi.txt
++++ b/Documentation/devicetree/bindings/bus/brcm,bus-axi.txt
+@@ -19,6 +19,19 @@ The top-level axi bus may contain childr
+ detected (e.g. IRQ numbers). Also some of the cores may be responsible
+ for extra things, e.g. ChipCommon providing access to the GPIO chip.
+ 
++Optional properties for USB 3.0 cores:
++
++- brcm,usb3-dmu-syscon : phandle to the CRU syscon followed by the USB 3.0
++  DMU control register offset.  The BCMA USB host driver temporarily clears
++  and restores bits 3 and 4 before enabling the USB 3.0 core.  This sequence
++  is only performed when the property is present.
++
++- brcm,shutdown-delay-ms : delay in milliseconds after removing the USB host
++  child devices and before disabling the BCMA core. This is intended for
++  boards whose boot firmware requires the SuperSpeed link and attached device
++  to settle before reset. Values greater than 10000 are rejected by the
++  driver.
++
+ Example:
+ 
+ 	axi@18000000 {
