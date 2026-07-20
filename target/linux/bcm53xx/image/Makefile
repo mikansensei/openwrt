@@ -250,6 +250,13 @@ define Device/buffalo_wxr-1900dhp
 endef
 TARGET_DEVICES += buffalo_wxr-1900dhp
 
+define Device/buffalo_wxr-1900dhp3
+  $(call Device/buffalo/Default)
+  DEVICE_MODEL := WXR-1900DHP3
+  DEVICE_PACKAGES := $(USB3_PACKAGES)
+endef
+TARGET_DEVICES += buffalo_wxr-1900dhp3
+
 define Device/buffalo_wzr-600dhp2
   $(call Device/buffalo/Default)
   DEVICE_MODEL := WZR-600DHP2
