@@ -1,0 +1,118 @@
+From: Togo Tagai <mail@mikan.observer>
+Subject: [PATCH] usb: bcma-hcd: tear down OF children before disabling cores
+
+The Northstar USB 2.0 and USB 3.0 paths create their HCD children with
+of_platform_default_populate(), but the remove and shutdown paths only
+unregister the legacy OHCI/EHCI platform devices.  This can leave an
+OF-populated child active while its parent BCMA core is disabled.
+
+Track successful OF population and depopulate those children before the
+parent core is disabled.  Also depopulate partially created children,
+propagate population failures, and restore the parent core to the disabled
+state on error.
+
+Signed-off-by: Togo Tagai <mail@mikan.observer>
+---
+ drivers/usb/host/bcma-hcd.c | 46 ++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 42 insertions(+), 4 deletions(-)
+
+--- a/drivers/usb/host/bcma-hcd.c
++++ b/drivers/usb/host/bcma-hcd.c
+@@ -42,6 +42,7 @@ struct bcma_hcd_device {
+ 	struct platform_device *ehci_dev;
+ 	struct platform_device *ohci_dev;
+ 	struct gpio_desc *gpio_desc;
++	bool of_children_populated;
+ };
+ 
+ /* Wait for bitmask in a register to get set or cleared.
+@@ -261,6 +262,31 @@ static void bcma_hcd_usb20_ns_init_hc(st
+ 	usleep_range(1000, 2000);
+ }
+ 
++static int bcma_hcd_of_platform_populate(struct bcma_hcd_device *bcma_hcd)
++{
++	struct device *dev = &bcma_hcd->core->dev;
++	int err;
++
++	err = of_platform_default_populate(dev->of_node, NULL, dev);
++	if (err) {
++		of_platform_depopulate(dev);
++		return err;
++	}
++
++	bcma_hcd->of_children_populated = true;
++
++	return 0;
++}
++
++static void bcma_hcd_of_platform_depopulate(struct bcma_hcd_device *bcma_hcd)
++{
++	if (!bcma_hcd->of_children_populated)
++		return;
++
++	of_platform_depopulate(&bcma_hcd->core->dev);
++	bcma_hcd->of_children_populated = false;
++}
++
+ /*
+  * bcma_hcd_usb20_ns_init - Initialize Northstar USB 2.0 controller
+  */
+@@ -268,7 +294,7 @@ static int bcma_hcd_usb20_ns_init(struct
+ {
+ 	struct bcma_device *core = bcma_hcd->core;
+ 	struct bcma_chipinfo *ci = &core->bus->chipinfo;
+-	struct device *dev = &core->dev;
++	int err;
+ 
+ 	bcma_core_enable(core, 0);
+ 
+@@ -276,7 +302,11 @@ static int bcma_hcd_usb20_ns_init(struct
+ 	    ci->id == BCMA_CHIP_ID_BCM53018)
+ 		bcma_hcd_usb20_ns_init_hc(core);
+ 
+-	of_platform_default_populate(dev->of_node, NULL, dev);
++	err = bcma_hcd_of_platform_populate(bcma_hcd);
++	if (err) {
++		bcma_core_disable(core, 0);
++		return err;
++	}
+ 
+ 	return 0;
+ }
+@@ -384,11 +414,15 @@ err_unregister_ohci_dev:
+ static int bcma_hcd_usb30_init(struct bcma_hcd_device *bcma_hcd)
+ {
+ 	struct bcma_device *core = bcma_hcd->core;
+-	struct device *dev = &core->dev;
++	int err;
+ 
+ 	bcma_core_enable(core, 0);
+ 
+-	of_platform_default_populate(dev->of_node, NULL, dev);
++	err = bcma_hcd_of_platform_populate(bcma_hcd);
++	if (err) {
++		bcma_core_disable(core, 0);
++		return err;
++	}
+ 
+ 	return 0;
+ }
+@@ -443,6 +477,8 @@ static void bcma_hcd_remove(struct bcma_
+ 	struct platform_device *ohci_dev = usb_dev->ohci_dev;
+ 	struct platform_device *ehci_dev = usb_dev->ehci_dev;
+ 
++	bcma_hcd_of_platform_depopulate(usb_dev);
++
+ 	if (ohci_dev)
+ 		platform_device_unregister(ohci_dev);
+ 	if (ehci_dev)
+@@ -453,6 +489,8 @@ static void bcma_hcd_remove(struct bcma_
+ 
+ static void bcma_hcd_shutdown(struct bcma_device *dev)
+ {
++	bcma_hcd_of_platform_depopulate(bcma_get_drvdata(dev));
++
+ 	bcma_hci_platform_power_gpio(dev, false);
+ 	bcma_core_disable(dev, 0);
+ }
