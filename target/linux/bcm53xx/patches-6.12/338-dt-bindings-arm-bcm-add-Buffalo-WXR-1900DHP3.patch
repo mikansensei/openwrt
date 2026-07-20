@@ -1,0 +1,20 @@
+From: Togo Tagai <mail@mikan.observer>
+Subject: [PATCH] dt-bindings: arm: bcm: add Buffalo WXR-1900DHP3
+
+Add the Buffalo WXR-1900DHP3, a BCM47094-based wireless router.
+
+Signed-off-by: Togo Tagai <mail@mikan.observer>
+---
+ Documentation/devicetree/bindings/arm/bcm/brcm,bcm4708.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/Documentation/devicetree/bindings/arm/bcm/brcm,bcm4708.yaml
++++ b/Documentation/devicetree/bindings/arm/bcm/brcm,bcm4708.yaml
+@@ -70,6 +70,7 @@ properties:
+               - asus,rt-ac3100
+               - asus,rt-ac5300
+               - asus,rt-ac88u
++              - buffalo,wxr-1900dhp3
+               - dlink,dir-885l
+               - dlink,dir-890l
+               - linksys,panamera
