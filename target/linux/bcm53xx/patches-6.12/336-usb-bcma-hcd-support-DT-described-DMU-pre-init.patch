@@ -1,0 +1,101 @@
+From: Togo Tagai <mail@mikan.observer>
+Subject: [PATCH] usb: bcma-hcd: support DT-described DMU pre-init
+
+The Buffalo WXR-1900DHP3 firmware clears and restores bits 3 and 4 of a
+DMU register before enabling the Northstar USB 3.0 core.  Without this
+step the SuperSpeed port can remain in RxDetect.
+
+Implement the sequence as an optional BCMA USB core capability described
+by a syscon and register offset.  Keeping the opt-in in DT limits it to
+boards that need it, while running the sequence before bcma_core_enable()
+preserves the ordering required by the hardware.
+
+Signed-off-by: Togo Tagai <mail@mikan.observer>
+---
+ drivers/usb/host/bcma-hcd.c | 53 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 53 insertions(+)
+
+--- a/drivers/usb/host/bcma-hcd.c
++++ b/drivers/usb/host/bcma-hcd.c
+@@ -19,9 +19,12 @@
+  * Copyright 2005-2011 Broadcom Corporation
+  */
+ #include <linux/bcma/bcma.h>
++#include <linux/bits.h>
+ #include <linux/delay.h>
+ #include <linux/gpio/consumer.h>
++#include <linux/mfd/syscon.h>
+ #include <linux/platform_device.h>
++#include <linux/regmap.h>
+ #include <linux/module.h>
+ #include <linux/slab.h>
+ #include <linux/of.h>
+@@ -37,6 +40,10 @@ MODULE_LICENSE("GPL");
+ /* See BCMA_CLKCTLST_EXTRESREQ and BCMA_CLKCTLST_EXTRESST */
+ #define USB_BCMA_CLKCTLST_USB_CLK_REQ			0x00000100
+ 
++#define BCM_NS_USB3_DMU_RESET_MASK	GENMASK(4, 3)
++#define BCM_NS_USB3_DMU_RESET_MIN_US	5000
++#define BCM_NS_USB3_DMU_RESET_MAX_US	6000
++
+ struct bcma_hcd_device {
+ 	struct bcma_device *core;
+ 	struct platform_device *ehci_dev;
+@@ -411,11 +418,57 @@ err_unregister_ohci_dev:
+ 	return err;
+ }
+ 
++static int bcma_hcd_usb30_dmu_preinit(struct bcma_device *core)
++{
++	struct device *dev = &core->dev;
++	struct regmap *dmu;
++	unsigned int offset;
++	unsigned int value;
++	int err;
++
++	if (!of_property_present(dev->of_node, "brcm,usb3-dmu-syscon"))
++		return 0;
++
++	dmu = syscon_regmap_lookup_by_phandle_args(dev->of_node,
++						    "brcm,usb3-dmu-syscon",
++						    1, &offset);
++	if (IS_ERR(dmu))
++		return dev_err_probe(dev, PTR_ERR(dmu),
++				     "failed to get USB3 DMU syscon\n");
++
++	err = regmap_read(dmu, offset, &value);
++	if (err)
++		return dev_err_probe(dev, err,
++				     "failed to read USB3 DMU register\n");
++
++	err = regmap_update_bits(dmu, offset, BCM_NS_USB3_DMU_RESET_MASK, 0);
++	if (err)
++		return dev_err_probe(dev, err,
++				     "failed to assert USB3 DMU reset\n");
++
++	usleep_range(BCM_NS_USB3_DMU_RESET_MIN_US,
++		     BCM_NS_USB3_DMU_RESET_MAX_US);
++
++	err = regmap_update_bits(dmu, offset, BCM_NS_USB3_DMU_RESET_MASK,
++				 value & BCM_NS_USB3_DMU_RESET_MASK);
++	if (err)
++		return dev_err_probe(dev, err,
++				     "failed to release USB3 DMU reset\n");
++
++	msleep(1250);
++
++	return 0;
++}
++
+ static int bcma_hcd_usb30_init(struct bcma_hcd_device *bcma_hcd)
+ {
+ 	struct bcma_device *core = bcma_hcd->core;
+ 	int err;
+ 
++	err = bcma_hcd_usb30_dmu_preinit(core);
++	if (err)
++		return err;
++
+ 	bcma_core_enable(core, 0);
+ 
+ 	err = bcma_hcd_of_platform_populate(bcma_hcd);
