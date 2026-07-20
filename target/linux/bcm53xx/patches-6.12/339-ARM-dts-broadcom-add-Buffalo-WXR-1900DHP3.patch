@@ -1,0 +1,282 @@
+From: Togo Tagai <mail@mikan.observer>
+Subject: [PATCH] ARM: dts: broadcom: add Buffalo WXR-1900DHP3
+
+Add a device tree for the Buffalo WXR-1900DHP3, a BCM47094 router with
+256 MiB of RAM and 128 MiB of NAND flash.
+
+The board has six LEDs connected to the SoC ChipCommon GPIO controller
+and three LEDs connected to the ChipCommon GPIO controller in the first
+BCM4360 PCIe radio.  Describe the PCI hierarchy and BCMA ChipCommon core
+so the existing BCMA GPIO provider can be consumed by gpio-leds.
+
+The NAND layout contains two 48 MiB firmware areas.  Keep the recovery
+area as a raw writable partition; Buffalo CFE compares both TRX headers,
+so installation and upgrades have to keep them synchronized manually.
+
+Opt in to the USB3 core DMU pre-enable sequence and the shutdown settle
+delay required for reliable SuperSpeed enumeration and warm reboot with
+attached storage.
+
+Signed-off-by: Togo Tagai <mail@mikan.observer>
+---
+ arch/arm/boot/dts/broadcom/Makefile          |   1 +
+ .../bcm47094-buffalo-wxr-1900dhp3.dts        | 243 +++++++++++++++++++
+ 2 files changed, 244 insertions(+)
+ create mode 100644 arch/arm/boot/dts/broadcom/bcm47094-buffalo-wxr-1900dhp3.dts
+
+--- a/arch/arm/boot/dts/broadcom/Makefile
++++ b/arch/arm/boot/dts/broadcom/Makefile
+@@ -75,6 +75,7 @@ dtb-$(CONFIG_ARCH_BCM_5301X) += \
+ 	bcm47094-asus-rt-ac3100.dtb \
+ 	bcm47094-asus-rt-ac5300.dtb \
+ 	bcm47094-asus-rt-ac88u.dtb \
++	bcm47094-buffalo-wxr-1900dhp3.dtb \
+ 	bcm47094-dlink-dir-885l.dtb \
+ 	bcm47094-dlink-dir-890l.dtb \
+ 	bcm47094-linksys-panamera.dtb \
+--- /dev/null
++++ b/arch/arm/boot/dts/broadcom/bcm47094-buffalo-wxr-1900dhp3.dts
+@@ -0,0 +1,243 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
++/*
++ * Broadcom BCM470X / BCM5301X ARM platform code.
++ * DTS for Buffalo WXR-1900DHP3
++ *
++ * Copyright (C) 2015 Felix Fietkau <nbd@openwrt.org>
++ * Copyright (C) 2026 Togo Tagai <mail@mikan.observer>
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/leds/common.h>
++#include "bcm47094.dtsi"
++#include "bcm5301x-nand-cs0-bch8.dtsi"
++
++/ {
++	compatible = "buffalo,wxr-1900dhp3", "brcm,bcm47094", "brcm,bcm4708";
++	model = "Buffalo WXR-1900DHP3";
++
++	chosen {
++		bootargs = "console=ttyS0,115200";
++	};
++
++	memory@0 {
++		device_type = "memory";
++		reg = <0x00000000 0x08000000>,
++		      <0x88000000 0x08000000>;
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		led-power-white {
++			function = LED_FUNCTION_POWER;
++			color = <LED_COLOR_ID_WHITE>;
++			gpios = <&chipcommon 5 GPIO_ACTIVE_HIGH>;
++			default-state = "on";
++		};
++
++		led-power-amber {
++			function = LED_FUNCTION_POWER;
++			color = <LED_COLOR_ID_AMBER>;
++			gpios = <&chipcommon 6 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-router-white {
++			function = LED_FUNCTION_STATUS;
++			color = <LED_COLOR_ID_WHITE>;
++			gpios = <&chipcommon 15 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-router-amber {
++			function = LED_FUNCTION_STATUS;
++			color = <LED_COLOR_ID_AMBER>;
++			gpios = <&chipcommon 14 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-wan-white {
++			function = LED_FUNCTION_WAN;
++			color = <LED_COLOR_ID_WHITE>;
++			gpios = <&chipcommon 7 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-wan-amber {
++			function = LED_FUNCTION_WAN;
++			color = <LED_COLOR_ID_AMBER>;
++			gpios = <&wl0_chipcommon 9 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-wireless-white {
++			function = LED_FUNCTION_WLAN;
++			color = <LED_COLOR_ID_WHITE>;
++			gpios = <&wl0_chipcommon 10 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-wireless-amber {
++			function = LED_FUNCTION_WLAN;
++			color = <LED_COLOR_ID_AMBER>;
++			gpios = <&wl0_chipcommon 11 GPIO_ACTIVE_HIGH>;
++		};
++
++		led-usb {
++			function = LED_FUNCTION_USB;
++			color = <LED_COLOR_ID_GREEN>;
++			gpios = <&chipcommon 4 GPIO_ACTIVE_HIGH>;
++		};
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		button-restart {
++			label = "Reset";
++			linux,code = <KEY_RESTART>;
++			gpios = <&chipcommon 11 GPIO_ACTIVE_LOW>;
++		};
++
++		button-aoss {
++			label = "AOSS";
++			linux,code = <KEY_WPS_BUTTON>;
++			gpios = <&chipcommon 2 GPIO_ACTIVE_LOW>;
++		};
++	};
++};
++
++&cru_clkset {
++	reg = <0x180 0x8>;
++};
++
++&nandcs {
++	partitions {
++		compatible = "fixed-partitions";
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "boot";
++			reg = <0x00000000 0x00080000>;
++			read-only;
++		};
++
++		partition@80000 {
++			label = "nvram";
++			reg = <0x00080000 0x00180000>;
++			read-only;
++		};
++
++		partition@200000 {
++			compatible = "brcm,trx";
++			label = "firmware";
++			reg = <0x00200000 0x03000000>;
++		};
++
++		partition@3200000 {
++			label = "firmware_recover";
++			reg = <0x03200000 0x03000000>;
++		};
++
++		partition@6200000 {
++			label = "data";
++			reg = <0x06200000 0x01000000>;
++			read-only;
++		};
++
++		partition@7200000 {
++			label = "user_property_raw";
++			reg = <0x07200000 0x00d00000>;
++			read-only;
++		};
++
++		partition@7f00000 {
++			label = "BBT";
++			reg = <0x07f00000 0x00100000>;
++			read-only;
++		};
++	};
++};
++
++&pcie0 {
++	ranges = <0x00000000 0 0 0 0 0x00100000>;
++	#address-cells = <3>;
++	#size-cells = <2>;
++
++	bridge@0,0,0 {
++		reg = <0x0000 0 0 0 0>;
++		ranges = <0x00000000 0 0 0 0 0 0 0x00100000>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++
++		wifi@0,1,0 {
++			reg = <0x0000 0 0 0 0>;
++			ranges = <0x00000000 0 0 0 0x00100000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			wl0_chipcommon: chipcommon@0 {
++				reg = <0 0x1000>;
++
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++	};
++};
++
++&spi_nor {
++	status = "okay";
++};
++
++&srab {
++	status = "okay";
++
++	ports {
++		port@0 {
++			label = "wan";
++		};
++
++		port@1 {
++			label = "lan1";
++		};
++
++		port@2 {
++			label = "lan2";
++		};
++
++		port@3 {
++			label = "lan3";
++		};
++
++		port@4 {
++			label = "lan4";
++		};
++
++		port@5 {
++			label = "cpu";
++		};
++
++		port@7 {
++			status = "disabled";
++		};
++
++		port@8 {
++			status = "disabled";
++		};
++	};
++};
++
++&uart0 {
++	clock-frequency = <100000000>;
++};
++
++&usb2 {
++	vcc-gpio = <&chipcommon 10 GPIO_ACTIVE_HIGH>;
++};
++
++&usb3 {
++	brcm,usb3-dmu-syscon = <&cru_clkset 0x4>;
++	brcm,shutdown-delay-ms = <5000>;
++};
++
++&usb3_phy {
++	status = "okay";
++};
